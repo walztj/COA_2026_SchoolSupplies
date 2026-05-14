@@ -125,6 +125,26 @@
 
   .empty { text-align: center; padding: 2.5rem; color: var(--muted); font-size: 14px; }
 
+  /* ── Got it checkbox ── */
+  .item-row { cursor: pointer; transition: background 0.15s; border-radius: 6px; }
+  .item-row.grabbed { background: #f0fdf4; opacity: 0.6; }
+  .item-row.grabbed .item-name { text-decoration: line-through; color: var(--muted); }
+  .item-row.grabbed .item-qty { color: #16a34a; }
+  .got-it {
+    width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--rule);
+    background: white; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; margin-top: 2px; transition: all 0.15s;
+  }
+  .item-row.grabbed .got-it { background: #16a34a; border-color: #16a34a; }
+  .got-it svg { display: none; }
+  .item-row.grabbed .got-it svg { display: block; }
+
+  /* ── Progress bar ── */
+  .progress-wrap { margin-bottom: 1rem; }
+  .progress-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  .progress-track { height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
+  .progress-fill { height: 100%; background: #16a34a; border-radius: 3px; transition: width 0.3s; width: 0%; }
+
   @media print {
     header .logo-img { height: 50px; }
     #configSection, .filter-bar, .search-bar, .actions { display: none !important; }
@@ -178,6 +198,10 @@
     <span class="search-icon">🔍</span>
     <input type="text" placeholder="Search items…" id="searchInput" oninput="renderList()" autocomplete="off" autocorrect="off" spellcheck="false">
   </div>
+  <div class="progress-wrap hidden" id="progressWrap">
+    <div class="progress-label"><span>Shopping progress</span><span id="progressText">0 of 0</span></div>
+    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+  </div>
   <div id="listContainer"></div>
   <div class="empty hidden" id="emptyMsg">No items match your filter.</div>
 </section>
@@ -201,7 +225,7 @@ function categorize(name) {
   return CAT_OTHER;
 }
 
-let selections={}, consolidated=[], activeFilter='all';
+let selections={}, consolidated=[], activeFilter='all', grabbed=new Set();
 
 const GRADES = [
   "Kindergarten","1st Grade","2nd Grade","3rd Grade","4th Grade",
@@ -259,6 +283,7 @@ function generate() {
     grades: Object.keys(breakdown)
   })).sort((a,b) => a.item.localeCompare(b.item));
 
+  grabbed = new Set();
   buildPills();
   renderList();
   const sel = Object.entries(selections).filter(([,v])=>v>0);
@@ -279,6 +304,22 @@ function buildPills() {
   });
 }
 
+function updateProgress() {
+  const total = consolidated.length;
+  const done = grabbed.size;
+  document.getElementById('progressText').textContent = `${done} of ${total}`;
+  document.getElementById('progressFill').style.width = total ? (done/total*100)+'%' : '0%';
+  document.getElementById('progressWrap').classList.toggle('hidden', total===0);
+}
+
+function toggleGrab(itemKey, div) {
+  if (grabbed.has(itemKey)) grabbed.delete(itemKey);
+  else grabbed.add(itemKey);
+  div.classList.toggle('grabbed', grabbed.has(itemKey));
+  div.querySelector('.got-it').style.background = grabbed.has(itemKey) ? '' : '';
+  updateProgress();
+}
+
 function renderList() {
   const q = document.getElementById('searchInput').value.toLowerCase();
   const container = document.getElementById('listContainer'); container.innerHTML = '';
@@ -290,7 +331,7 @@ function renderList() {
     if (q && !row.item.toLowerCase().includes(q)) return false;
     return true;
   });
-  if (!visible.length) { document.getElementById('emptyMsg').classList.remove('hidden'); return; }
+  if (!visible.length) { document.getElementById('emptyMsg').classList.remove('hidden'); updateProgress(); return; }
   document.getElementById('emptyMsg').classList.add('hidden');
 
   [...CATEGORIES, CAT_OTHER].forEach(cat => {
@@ -306,12 +347,25 @@ function renderList() {
         const short = g.replace(' Grade','').replace('Kindergarten','K');
         return `<span class="grade-badge badge-${bk}">${short}: ${row.breakdown[g]}</span>`;
       }).join('');
-      const div = document.createElement('div'); div.className = 'item-row';
-      div.innerHTML = `<div class="item-name">${row.item}</div><div class="item-right"><div class="item-qty">${filteredQty}</div><div class="item-qty-label">needed</div><div class="badges">${badges}</div></div>`;
+      const isGrabbed = grabbed.has(row.item);
+      const div = document.createElement('div');
+      div.className = 'item-row' + (isGrabbed ? ' grabbed' : '');
+      div.innerHTML = `
+        <div class="got-it">
+          <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="item-name">${row.item}</div>
+        <div class="item-right">
+          <div class="item-qty">${filteredQty}</div>
+          <div class="item-qty-label">needed</div>
+          <div class="badges">${badges}</div>
+        </div>`;
+      div.addEventListener('click', () => toggleGrab(row.item, div));
       group.appendChild(div);
     });
     container.appendChild(group);
   });
+  updateProgress();
 }
 
 function copyCSV() {
@@ -325,7 +379,7 @@ function copyCSV() {
 }
 
 function startOver() {
-  consolidated = []; activeFilter = 'all';
+  consolidated = []; activeFilter = 'all'; grabbed = new Set();
   GRADES.forEach((g,i) => { selections[g]=0; });
   document.querySelectorAll('.grade-card').forEach(c=>c.classList.remove('selected'));
   document.getElementById('resultsSection').classList.add('hidden');
